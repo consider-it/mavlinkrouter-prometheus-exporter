@@ -26,8 +26,8 @@ METRIC_TRANSM_TOTAL_KB = "mavlinkrouter_transmit_total_kilo_byte"
 
 
 # ================== File paths ======================
-PROM_FILE_PATH = "/var/local/node_exporter/exporter.prom"
-CACHE_FILE_PATH = "/var/local/node_exporter/cache.prom"
+PROM_FILE_PATH = "/var/local/exporter.prom"
+CACHE_FILE_PATH = "/var/local/cache.prom"
 
 
 # =============== State machine states ==========================
@@ -105,7 +105,7 @@ def readDevName(inputStr):
 # Writes a metric to the cache file with the according device name, conn type and so on
 def writeMetric(metricStr, value):
     writeDataToCacheTextfile(
-        metricStr + "{device_name=\"" + deviceName + "\",conn_type=\"" + deviceConnType + "\",device_id=\"" + deviceID + "\"} " + str(value) + "\n")
+        metricStr + "{endpoint_name=\"" + deviceName + "\",conn_type=\"" + deviceConnType + "\",endpoint_id=\"" + deviceID + "\"} " + str(value) + "\n")
 
 
 # inf. loop
