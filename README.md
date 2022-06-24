@@ -1,19 +1,55 @@
-# MAVLink-prometheus_parser
-                    
-## Explanation
-A Python script, wich parses the stdout of the mavlink_router to a textfile.
-This is usefull, once the prometheus-agent forwards the statistics (from a prom textfile) to grafana
+# MAVLink Router Prometheus Exporter
 
-The statistics of the mavlink router will be output, once the "-r" argument is passed.
-The resulting output can be piped into this python script (see section "Usage")
-This script then evaluates each line of the piped input accordingly.
-A statemachine is used to go through line for line and write relevant data into a chache textfile
-Once a complete set of informations was collected, the content of the cache textfile is copied into the actual prom textfile
+Conversion script exporting the [MAVLink Router](https://github.com/mavlink-router/mavlink-router) routing statistics output to Prometheus metrics.
 
-                    
+MAVLink router prints some statistics of each endpoint to stdout when started with the `-r` option.
+When fed with this output via stdin, this application can parse the data and write them to a file.
+This file can then be consumed by prometheus via it's testfile collector.
+
+
+## Installation
+
+Only python3 is needed since no additional pip modules are used.
+Either just clone this repository to somewhere you like or copy the pythons script to a location contained in your `PATH` afterwards for easier usage.
+
+The MAVLink router version needs to be newer than 2022-06-15 as [PR#363](https://github.com/mavlink-router/mavlink-router/pull/363) is needed to work properly.
+
+
 ## Usage
-<code>"mavlinkrouter -r | python3 data_parser.py"</code>
-                       
-## Output (textfile) location:
-<code>/var/local/exporter.prom</code>
-                        
+
+The script will write it's output to `/var/local/exporter.prom`, but also needs a temporary file at `/var/local/cache.prom` where data is collected until data from all endpoints was written.
+
+Start the chain manually with:
+```shell
+sudo mavlink-routerd -r | sudo python3 data_parser.py
+```
+
+Or modify MAVLink Router's systemd unit like this:
+```
+ExecStart=/bin/sh -c '/usr/bin/mavlink-routerd -r | python3 /usr/local/bin/data_parser.py'
+```
+
+These metrics will be written for each endpoint:
+
+- `mavlinkrouter_receive_crcerror_count`
+- `mavlinkrouter_receive_crcerror_percent`
+- `mavlinkrouter_receive_crcerror_kilo_byte`
+- `mavlinkrouter_receive_seqlost_count`
+- `mavlinkrouter_receive_seqlost_percent`
+- `mavlinkrouter_receive_handled_count`
+- `mavlinkrouter_receive_handled_kilo_byte`
+- `mavlinkrouter_receive_total_count`
+- `mavlinkrouter_transmit_total_count`
+- `mavlinkrouter_transmit_total_kilo_byte`
+
+They are tagged with:
+
+- `conn_type`: UDP, TCP or UART as printed by mavlink-router
+- `endpoint_id`: Endpoint number as printed by mavlink-router
+- `endpoint_name`: Endpoint name as printed by mavlink-router
+
+Clients connecting to the TCP server port will all have the same endpoint name as mavlink-router does not print a dynamic value (at the time of writing this).
+Endpoints created via command line options will also have no (unique) name, so using the config file of MAVLink Router is recommended.
+
+Endpoint IDs might also not be unique during the whole runtime of mavlink-router as they might be re-assigned when a client disconnected.
+But this script is only exporting the data available in the statistics output.
