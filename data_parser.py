@@ -106,119 +106,118 @@ def main():
     metrics_cache = io.StringIO()
     recevied_ids = []
 
-    while True:
-        for line in sys.stdin:
-            logger.debug("New line: %s", line[:-1])
+    for line in sys.stdin:
+        logger.debug("New line: %s", line[:-1])
 
-            # Always reset to start state, if statistics start was found
-            start_line_match = re.match(r"(\w+) Endpoint \[(\d+)\](\w*)", line)
-            if start_line_match:
-                endpoint_conn_type = start_line_match.group(1)
-                endpoint_id = start_line_match.group(2)
-                endpoint_name = start_line_match.group(3)
+        # Always reset to start state, if statistics start was found
+        start_line_match = re.match(r"(\w+) Endpoint \[(\d+)\](\w*)", line)
+        if start_line_match:
+            endpoint_conn_type = start_line_match.group(1)
+            endpoint_id = start_line_match.group(2)
+            endpoint_name = start_line_match.group(3)
 
-                logger.info("-> Start of %s %s (%s)", endpoint_conn_type,
-                            endpoint_id, endpoint_name)
+            logger.info("-> Start of %s %s (%s)", endpoint_conn_type,
+                        endpoint_id, endpoint_name)
 
-                # write output, if we got data which is already there
-                if endpoint_id in recevied_ids:
-                    logger.info("-> Writing metrics_cache to output file")
-                    write_output_file(args.output, metrics_cache)
+            # write output, if we got data which is already there
+            if endpoint_id in recevied_ids:
+                logger.info("-> Writing metrics_cache to output file")
+                write_output_file(args.output, metrics_cache)
 
-                    # flush metrics_cache
-                    metrics_cache.close()
-                    metrics_cache = io.StringIO()
-                    recevied_ids.clear()
+                # flush metrics_cache
+                metrics_cache.close()
+                metrics_cache = io.StringIO()
+                recevied_ids.clear()
 
-                recevied_ids.append(endpoint_id)
+            recevied_ids.append(endpoint_id)
 
-                next_state = State.READ_RX_START
+            next_state = State.READ_RX_START
 
-            # Remaining state machine to parse the input data
-            if current_state == State.IDLE:
-                pass
-            elif current_state == State.READ_RX_START:
-                if line.find("Received messages") != -1:
-                    next_state = State.READ_RX_CRCERROR
-                else:
-                    pass
-
-            elif current_state == State.READ_RX_CRCERROR:
-                if line.find("CRC error") != -1:
-                    # regex to find the numbers within the line
-                    digits = re.findall(r"\d+", line)
-                    write_metric_to_file(metrics_cache, METRIC_REC_CRCERR_CNT,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
-                    write_metric_to_file(metrics_cache, METRIC_REC_CRCERR_PCT,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[1])
-                    write_metric_to_file(metrics_cache, METRIC_REC_CRCERR_KB,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[2])
-                    logger.debug("  Found RX CRC error: %s pkt, %s kb, %s /100",
-                                 digits[0], digits[2], digits[1])
-                    next_state = State.READ_RX_SEQLOST
-                else:
-                    logger.warning("Expecting RX 'CRC error' line, but got: %s", line[:-1])
-
-            elif current_state == State.READ_RX_SEQLOST:
-                if line.find("Sequence lost") != -1:
-                    digits = re.findall(r"\d+", line)
-                    write_metric_to_file(metrics_cache, METRIC_REC_SEQLOST_CNT,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
-                    write_metric_to_file(metrics_cache, METRIC_REC_SEQLOST_PCT,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[1])
-                    logger.debug("  Found RX Seq. lost: %s pkt, %s /100", digits[0], digits[1])
-                    next_state = State.READ_RX_HANDLED
-                else:
-                    logger.warning("Expecting RX 'Sequence lost' line, but ot: %s", line[:-1])
-
-            elif current_state == State.READ_RX_HANDLED:
-                if line.find("Handled") != -1:
-                    digits = re.findall(r"\d+", line)
-                    write_metric_to_file(metrics_cache, METRIC_REC_HANDLED_CNT,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
-                    write_metric_to_file(metrics_cache, METRIC_REC_HANDLED_KB,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[1])
-                    logger.debug("  Found RX Handled: %s pkt, %s kb", digits[0], digits[1])
-                    next_state = State.READ_RX_TOTAL
-                else:
-                    logger.warning("Expecting RX 'Handled' line, but got: %s", line[:-1])
-
-            elif current_state == State.READ_RX_TOTAL:
-                if line.find("Total") != -1:
-                    digits = re.findall(r"\d+", line)
-                    write_metric_to_file(metrics_cache, METRIC_REC_TOTAL_CNT,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
-                    logger.debug("  Found RX Total: %s pkt", digits[0])
-                    next_state = State.READ_TX_START
-                else:
-                    logger.warning("Expecting RX 'Total' line, but got: %s", line[:-1])
-
-            elif current_state == State.READ_TX_START:
-                if line.find("Transmitted messages") != -1:
-                    next_state = State.READ_TX_TOTAL
-                else:
-                    pass
-
-            elif current_state == State.READ_TX_TOTAL:
-                if line.find("Total") != -1:
-                    digits = re.findall(r"\d+", line)
-                    write_metric_to_file(metrics_cache, METRIC_TRANSM_TOTAL_CNT,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
-                    write_metric_to_file(metrics_cache, METRIC_TRANSM_TOTAL_KB,
-                                         endpoint_name, endpoint_conn_type, endpoint_id, digits[1])
-                    logger.debug("  Found TX Total: %s pkt, %s kb", digits[0], digits[1])
-                    next_state = State.SEND_INFO
-                else:
-                    logger.warning("Expecting TX 'Total' line, but got: %s", line[:-1])
-
-            elif current_state == State.SEND_INFO:
-                logger.info("   Got all data for endpoint %s", endpoint_id)
-                next_state = State.IDLE
-
+        # Remaining state machine to parse the input data
+        if current_state == State.IDLE:
+            pass
+        elif current_state == State.READ_RX_START:
+            if line.find("Received messages") != -1:
+                next_state = State.READ_RX_CRCERROR
             else:
-                next_state = State.IDLE
+                pass
 
-            current_state = next_state
+        elif current_state == State.READ_RX_CRCERROR:
+            if line.find("CRC error") != -1:
+                # regex to find the numbers within the line
+                digits = re.findall(r"\d+", line)
+                write_metric_to_file(metrics_cache, METRIC_REC_CRCERR_CNT,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
+                write_metric_to_file(metrics_cache, METRIC_REC_CRCERR_PCT,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[1])
+                write_metric_to_file(metrics_cache, METRIC_REC_CRCERR_KB,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[2])
+                logger.debug("  Found RX CRC error: %s pkt, %s kb, %s /100",
+                             digits[0], digits[2], digits[1])
+                next_state = State.READ_RX_SEQLOST
+            else:
+                logger.warning("Expecting RX 'CRC error' line, but got: %s", line[:-1])
+
+        elif current_state == State.READ_RX_SEQLOST:
+            if line.find("Sequence lost") != -1:
+                digits = re.findall(r"\d+", line)
+                write_metric_to_file(metrics_cache, METRIC_REC_SEQLOST_CNT,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
+                write_metric_to_file(metrics_cache, METRIC_REC_SEQLOST_PCT,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[1])
+                logger.debug("  Found RX Seq. lost: %s pkt, %s /100", digits[0], digits[1])
+                next_state = State.READ_RX_HANDLED
+            else:
+                logger.warning("Expecting RX 'Sequence lost' line, but ot: %s", line[:-1])
+
+        elif current_state == State.READ_RX_HANDLED:
+            if line.find("Handled") != -1:
+                digits = re.findall(r"\d+", line)
+                write_metric_to_file(metrics_cache, METRIC_REC_HANDLED_CNT,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
+                write_metric_to_file(metrics_cache, METRIC_REC_HANDLED_KB,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[1])
+                logger.debug("  Found RX Handled: %s pkt, %s kb", digits[0], digits[1])
+                next_state = State.READ_RX_TOTAL
+            else:
+                logger.warning("Expecting RX 'Handled' line, but got: %s", line[:-1])
+
+        elif current_state == State.READ_RX_TOTAL:
+            if line.find("Total") != -1:
+                digits = re.findall(r"\d+", line)
+                write_metric_to_file(metrics_cache, METRIC_REC_TOTAL_CNT,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
+                logger.debug("  Found RX Total: %s pkt", digits[0])
+                next_state = State.READ_TX_START
+            else:
+                logger.warning("Expecting RX 'Total' line, but got: %s", line[:-1])
+
+        elif current_state == State.READ_TX_START:
+            if line.find("Transmitted messages") != -1:
+                next_state = State.READ_TX_TOTAL
+            else:
+                pass
+
+        elif current_state == State.READ_TX_TOTAL:
+            if line.find("Total") != -1:
+                digits = re.findall(r"\d+", line)
+                write_metric_to_file(metrics_cache, METRIC_TRANSM_TOTAL_CNT,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[0])
+                write_metric_to_file(metrics_cache, METRIC_TRANSM_TOTAL_KB,
+                                     endpoint_name, endpoint_conn_type, endpoint_id, digits[1])
+                logger.debug("  Found TX Total: %s pkt, %s kb", digits[0], digits[1])
+                next_state = State.SEND_INFO
+            else:
+                logger.warning("Expecting TX 'Total' line, but got: %s", line[:-1])
+
+        elif current_state == State.SEND_INFO:
+            logger.info("   Got all data for endpoint %s", endpoint_id)
+            next_state = State.IDLE
+
+        else:
+            next_state = State.IDLE
+
+        current_state = next_state
 
 
 if __name__ == "__main__":
