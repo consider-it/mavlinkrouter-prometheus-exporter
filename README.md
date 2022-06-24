@@ -17,7 +17,7 @@ The MAVLink router version needs to be newer than 2022-06-15 as [PR#363](https:/
 
 ## Usage
 
-The script will write it's output to `/var/local/exporter.prom`, but also needs a temporary file at `/var/local/cache.prom` where data is collected until data from all endpoints was written.
+The script will write it's output to `/var/local/` by default using `mavrouter_export.prom` for the actual data and `mavrouter_export.cache` for temporary storage of the output until a full dataset was collected.
 
 Start the chain manually with:
 ```shell
