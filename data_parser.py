@@ -30,12 +30,17 @@ METRIC_TRANSM_TOTAL_KB = "mavlinkrouter_transmit_total_kilo_byte"
 
 
 # ================== File paths ======================
-PROM_FILE_PATH = "/var/local/exporter.prom"
-CACHE_FILE_PATH = "/var/local/cache.prom"
+FOLDER_PATH = "/var/local/"
+
+PROM_FILE_PATH = FOLDER_PATH + "mavrouter_export.prom"
+CACHE_FILE_PATH = FOLDER_PATH + "mavrouter_export.cache"
 
 
 # =============== State machine states ==========================
-class state(Enum):
+class State(Enum):
+    """
+    This enum declares the different states of the state machine used
+    """
     IDLE = 0
     EVAL_RECEIVED = 1
     EVAL_RECEIVED_CRC_ERR = 2
@@ -47,72 +52,72 @@ class state(Enum):
     SEND_INFO = 8
 
 
-# initialize states
-currentState = state.IDLE
-nextState = state.IDLE
-# timestamp (in seconds.. as float). initially set to float max,
-# because lastUpdateWasOverASecondAgo() shouldnt be triggered in the first iterataiton
-lastTimeStamp = sys.float_info.max
-deviceID = "DEFAULT"
-deviceName = "DEFAULT"
-deviceConnType = "DEFAULT"
-# this cache file is a textfile where the single lines (data) are written successively.
-cacheFile = open(CACHE_FILE_PATH, 'w+')
+def write_data_to_textfile(file, data_as_string):
+    """
+    Writes a line to the cache textfile
+    """
+    file.write(data_as_string)
 
 
-# Writes a line to the cache textfile
-def writeDataToCacheTextfile(dataAsString):
-    cacheFile.write(dataAsString)
+def update_prom_textfile():
+    """
+    The prom file needs to be complete in order to ensure integrity.
+    thats why single lines where written to the cache file successively and
+    only once the data is complete, the content is written to the prom file as a whole.
+    This happens here, in this function
+    """
+    cache_file_input = open(CACHE_FILE_PATH, 'r', encoding="utf8")  # reopen to (only) read
+    prom_file_output = open(PROM_FILE_PATH, 'w+', encoding="utf8")  # open prom file
+    for single_line in cache_file_input.readlines():     # transfer all data from cache to prom file
+        prom_file_output.write(single_line)
+    prom_file_output.close()                       # save/close prom file
+    cache_file_input.close()                      # close cache file
+    open(CACHE_FILE_PATH, 'w', encoding="utf8").close()      # clear cache file
 
 
-# The prom file needs to be complete in order to ensure integrity.
-# thats why single lines where written to the cache file successively and
-# only once the data is complete, the content is written to the prom file as a whole
-def updatePROMTextFile():
-    global cacheFile
-    cacheFile.close()  # close it for safety
-    cacheFile = open(CACHE_FILE_PATH, 'r')  # reopen to (only) read
-    promFile = open(PROM_FILE_PATH, 'w+')  # open prom file
-    for line in cacheFile.readlines():     # transfer all data from cache to prom file
-        promFile.write(line)
-    promFile.close()                       # save/close prom file
-    cacheFile.close()                      # close cache file
-    open(CACHE_FILE_PATH, 'w').close()      # clear cache file
-    # reopens file, because its needed to be written again
-    cacheFile = open(CACHE_FILE_PATH, 'w+')
-
-
-# Checks, if the last data / update was over 0.9 sec ago
-def lastUpdateWasOverASecondAgo(timeStamp):
-    if timeStamp < (time.time()-0.9):
+def last_update_over_a_second_ago(timestamp):
+    """
+    Checks, if the last data / update was over 0.9 sec ago
+    """
+    if timestamp < (time.time()-0.9):
         return True
-    else:
-        return False
+    return False
 
 
-# Reads device id out of the string
-def readDevID(inputStr):
-    start = inputStr.find("[") + 1
-    end = inputStr.find("]", start, len(inputStr))
-    devID = inputStr[start:end]
-    return devID
+def read_endppoint_id(input_string):
+    """
+    Reads device id out of the string
+    """
+    start = input_string.find("[") + 1
+    end = input_string.find("]", start, len(input_string))
+    dev_id = input_string[start:end]
+    return dev_id
 
 
-# Reads device name out of the string
-def readDevName(inputStr):
-    start = inputStr.find("]") + 1
-    end = inputStr.find("{", start, len(inputStr)) - 1
-    devName = inputStr[start:end]
-    return devName
+def read_endppoint_name(input_string):
+    """
+    Reads device name out of the string
+    """
+    start = input_string.find("]") + 1
+    end = input_string.find("{", start, len(input_string)) - 1
+    dev_name = input_string[start:end]
+    return dev_name
 
 
-# Writes a metric to the cache file with the according device name, conn type and so on
-def writeMetric(metricStr, value):
-    writeDataToCacheTextfile(
-        metricStr + "{endpoint_name=\"" + deviceName + "\",conn_type=\"" + deviceConnType + "\",endpoint_id=\"" + deviceID + "\"} " + str(value) + "\n")
+def write_metric_to_file(inp_file, inp_metric_str, inp_endpoint_name, inp_endpoint_conntype, inp_endpoint_id, inp_value):
+    """
+    Writes a metric to the cache file with the according device name, conn type and so on
+    """
+    complete_string = inp_metric_str + "{endpoint_name=\"" + inp_endpoint_name + "\",conn_type=\"" + \
+        inp_endpoint_conntype + "\",endpoint_id=\"" + \
+        inp_endpoint_id + "\"} " + str(inp_value) + "\n"
+    write_data_to_textfile(inp_file, complete_string)
 
 
 if __name__ == "__main__":
+    """
+    Main function
+    """
     log_format = '%(asctime)s %(levelname)s:%(name)s: %(message)s'
     log_datefmt = '%Y-%m-%dT%H:%M:%S%z'
     logging.basicConfig(format=log_format, datefmt=log_datefmt, level=logging.INFO)
@@ -130,6 +135,18 @@ if __name__ == "__main__":
     else:
         logger.setLevel(logging.WARNING)
 
+    endpoint_ID = "DEFAULT"
+    endpoint_name = "DEFAULT"
+    endpoint_conn_type = "DEFAULT"
+    # initialize states
+    current_state = State.IDLE
+    next_state = State.IDLE
+    # timestamp (in seconds.. as float). initially set to float max,
+    # because last_update_over_a_second_ago() shouldnt be triggered in the first iterataiton
+    last_time_stamp = sys.float_info.max
+    # this cache file is a textfile where the single lines (data) are written successively.
+    cache_file = open(CACHE_FILE_PATH, 'w+', encoding="utf8")
+
     # inf. loop
     while True:
         for line in sys.stdin:  # goes through the input line by line in an infinite loop
@@ -137,89 +154,103 @@ if __name__ == "__main__":
             sys.stdout.write(line)
 
             if line.find("TCP Endpoint") != -1:
-                deviceConnType = "TCP"
-                deviceName = readDevName(line)
-                deviceID = readDevID(line)
-                if(lastUpdateWasOverASecondAgo(lastTimeStamp)):
-                    updatePROMTextFile()
-                nextState = state.EVAL_RECEIVED
+                endpoint_conn_type = "TCP"
+                endpoint_name = read_endppoint_name(line)
+                endpoint_ID = read_endppoint_id(line)
+                if last_update_over_a_second_ago(last_time_stamp):
+                    cache_file.close()
+                    update_prom_textfile()
+                next_state = State.EVAL_RECEIVED
 
             elif line.find("UDP Endpoint") != -1:
-                deviceConnType = "UDP"
-                deviceName = readDevName(line)
-                deviceID = readDevID(line)
-                if(lastUpdateWasOverASecondAgo(lastTimeStamp)):
-                    updatePROMTextFile()
-                nextState = state.EVAL_RECEIVED
+                endpoint_conn_type = "UDP"
+                endpoint_name = read_endppoint_name(line)
+                endpoint_ID = read_endppoint_id(line)
+                if last_update_over_a_second_ago(last_time_stamp):
+                    cache_file.close()
+                    update_prom_textfile()
+                next_state = State.EVAL_RECEIVED
 
             elif line.find("UART Endpoint") != -1:
-                deviceConnType = "UART"
-                deviceName = readDevName(line)
-                deviceID = readDevID(line)
-                if(lastUpdateWasOverASecondAgo(lastTimeStamp)):
-                    updatePROMTextFile()
-                nextState = state.EVAL_RECEIVED
+                endpoint_conn_type = "UART"
+                endpoint_name = read_endppoint_name(line)
+                endpoint_ID = read_endppoint_id(line)
+                if last_update_over_a_second_ago(last_time_stamp):
+                    cache_file.close()
+                    update_prom_textfile()
+                next_state = State.EVAL_RECEIVED
 
-        # ========= pseudo Switch case for state machine ==========
-            if(currentState == state.IDLE):
+        # ========= pseudo Switch case for State machine ==========
+            if current_state == State.IDLE:
                 pass
-            elif(currentState == state.EVAL_RECEIVED):
-                nextState = state.EVAL_RECEIVED_CRC_ERR
+            elif current_state == State.EVAL_RECEIVED:
+                cache_file = open(CACHE_FILE_PATH, 'w+', encoding="utf8")
+                next_state = State.EVAL_RECEIVED_CRC_ERR
 
-            elif(currentState == state.EVAL_RECEIVED_CRC_ERR):
-                if(line.find("CRC error") != -1):
+            elif current_state == State.EVAL_RECEIVED_CRC_ERR:
+                if line.find("CRC error") != -1:
                     # regex to find the numbers within the line
                     digits = re.findall(r"\d+", line)
-                    writeMetric(METRIC_REC_CRCERR_CNT, digits[0])
-                    writeMetric(METRIC_REC_CRCERR_PCT, digits[1])
-                    writeMetric(METRIC_REC_CRCERR_KB, digits[2])
-                    nextState = state.EVAL_RECEIVED_SEQ_LOST
+                    write_metric_to_file(cache_file, METRIC_REC_CRCERR_CNT,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[0])
+                    write_metric_to_file(cache_file, METRIC_REC_CRCERR_PCT,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[1])
+                    write_metric_to_file(cache_file, METRIC_REC_CRCERR_KB,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[2])
+                    next_state = State.EVAL_RECEIVED_SEQ_LOST
                 else:
                     pass
 
-            elif(currentState == state.EVAL_RECEIVED_SEQ_LOST):
-                if(line.find("Sequence lost") != -1):
+            elif current_state == State.EVAL_RECEIVED_SEQ_LOST:
+                if line.find("Sequence lost") != -1:
                     digits = re.findall(r"\d+", line)
-                    writeMetric(METRIC_REC_SEQLOST_CNT, digits[0])
-                    writeMetric(METRIC_REC_SEQLOST_PCT, digits[1])
-                    nextState = state.EVAL_RECEIVED_HANDLED
+                    write_metric_to_file(cache_file, METRIC_REC_SEQLOST_CNT,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[0])
+                    write_metric_to_file(cache_file, METRIC_REC_SEQLOST_PCT,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[1])
+                    next_state = State.EVAL_RECEIVED_HANDLED
                 else:
                     pass
 
-            elif(currentState == state.EVAL_RECEIVED_HANDLED):
-                if(line.find("Handled") != -1):
+            elif current_state == State.EVAL_RECEIVED_HANDLED:
+                if line.find("Handled") != -1:
                     digits = re.findall(r"\d+", line)
-                    writeMetric(METRIC_REC_HANDLED_CNT, digits[0])
-                    writeMetric(METRIC_REC_HANDLED_KB, digits[1])
-                    nextState = state.EVAL_RECEIVED_TOTAL
+                    write_metric_to_file(cache_file, METRIC_REC_HANDLED_CNT,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[0])
+                    write_metric_to_file(cache_file, METRIC_REC_HANDLED_KB,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[1])
+                    next_state = State.EVAL_RECEIVED_TOTAL
                 else:
                     pass
 
-            elif(currentState == state.EVAL_RECEIVED_TOTAL):
-                if(line.find("Total") != -1):
+            elif current_state == State.EVAL_RECEIVED_TOTAL:
+                if line.find("Total") != -1:
                     digits = re.findall(r"\d+", line)
-                    writeMetric(METRIC_REC_TOTAL_CNT, digits[0])
-                    nextState = state.EVAL_TRANSMITTED
+                    write_metric_to_file(cache_file, METRIC_REC_TOTAL_CNT,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[0])
+                    next_state = State.EVAL_TRANSMITTED
                 else:
                     pass
 
-            elif(currentState == state.EVAL_TRANSMITTED):
-                nextState = state.EVAL_TRANSMITTED_TOTAL
+            elif current_state == State.EVAL_TRANSMITTED:
+                next_state = State.EVAL_TRANSMITTED_TOTAL
 
-            elif(currentState == state.EVAL_TRANSMITTED_TOTAL):
-                if(line.find("Total") != -1):
+            elif current_state == State.EVAL_TRANSMITTED_TOTAL:
+                if line.find("Total") != -1:
                     digits = re.findall(r"\d+", line)
-                    writeMetric(METRIC_TRANSM_TOTAL_CNT, digits[0])
-                    writeMetric(METRIC_TRANSM_TOTAL_KB, digits[1])
-                    nextState = state.SEND_INFO
+                    write_metric_to_file(cache_file, METRIC_TRANSM_TOTAL_CNT,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[0])
+                    write_metric_to_file(cache_file, METRIC_TRANSM_TOTAL_KB,
+                                         endpoint_name, endpoint_conn_type, endpoint_ID, digits[1])
+                    next_state = State.SEND_INFO
                 else:
                     pass
 
-            elif(currentState == state.SEND_INFO):
-                nextState = state.IDLE
+            elif current_state == State.SEND_INFO:
+                next_state = State.IDLE
 
             else:
-                nextState = state.IDLE
+                next_state = State.IDLE
 
-            currentState = nextState        # update next state for the state machine
-            lastTimeStamp = time.time()     # update timestamp
+            current_state = next_state        # update next State for the State machine
+            last_time_stamp = time.time()     # update timestamp
