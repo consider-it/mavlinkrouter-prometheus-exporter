@@ -7,6 +7,7 @@ Conversion of MAVLink Router routing statistics output to Prometheus metrics
 Author:   Oemer Yilmaz <yilmaz@consider-it.de>
 Author:   Jannik Beyerstedt <beyerstedt@consider-it.de>
 Copyright: (c) consider it GmbH, 2022
+License:   MIT
 """
 
 from enum import Enum
